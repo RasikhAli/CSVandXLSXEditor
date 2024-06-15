@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editable Table</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.16.9/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid black;
+            padding: 8px;
+            text-align: left;
+            white-space: nowrap; /* Prevent extra spaces */
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        input {
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .button-container {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Upload CSV/XLSX File</h1>
+    <input type="file" id="fileInput" accept=".csv, .xlsx" />
+    <div id="feedback" style="color: red;"></div>
+    <br><br>
+    <table id="dataTable"></table>
+    <div class="button-container">
+        <button onclick="addRow()">Add Row</button>
+        <button onclick="downloadCSV()">Download CSV</button>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const dataTable = document.getElementById('dataTable');
+        const feedback = document.getElementById('feedback');
+        let jsonData = [];
+
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                const data = e.target.result;
+                let workbook;
+                if (file.name.endsWith('.csv')) {
+                    workbook = XLSX.read(data, { type: 'binary' });
+                } else {
+                    workbook = XLSX.read(data, { type: 'array' });
+                }
+                const sheetName = workbook.SheetNames[0];
+                const sheet = workbook.Sheets[sheetName];
+                jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+                renderTable(jsonData);
+            };
+
+            if (file.name.endsWith('.csv')) {
+                reader.readAsBinaryString(file);
+            } else {
+                reader.readAsArrayBuffer(file);
+            }
+        });
+
+        function renderTable(data) {
+            dataTable.innerHTML = '';
+            const thead = document.createElement('thead');
+            const tbody = document.createElement('tbody');
+
+            // Create the header row
+            const headerRow = data[0];
+            const headerTr = document.createElement('tr');
+            const checkboxTr = document.createElement('tr');
+            headerRow.forEach((header, index) => {
+                const th = document.createElement('th');
+                th.textContent = header;
+                headerTr.appendChild(th);
+
+                const checkboxTh = document.createElement('th');
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.dataset.columnIndex = index;
+                checkbox.addEventListener('change', toggleColumnEditable);
+                checkboxTh.appendChild(checkbox);
+                checkboxTr.appendChild(checkboxTh);
+            });
+            thead.appendChild(headerTr);
+            thead.appendChild(checkboxTr);
+            dataTable.appendChild(thead);
+
+            // Create the data rows
+            data.slice(1).forEach((row, rowIndex) => {
+                const tr = document.createElement('tr');
+                row.forEach((cell, cellIndex) => {
+                    const td = document.createElement('td');
+                    td.textContent = cell;
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+
+            dataTable.appendChild(tbody);
+        }
+
+        function toggleColumnEditable(event) {
+            const checkbox = event.target;
+            const columnIndex = checkbox.dataset.columnIndex;
+            const rows = dataTable.querySelectorAll('tbody tr');
+
+            rows.forEach((row) => {
+                const cell = row.cells[columnIndex];
+                if (cell) {
+                    if (checkbox.checked) {
+                        const input = document.createElement('input');
+                        input.value = cell.textContent.trim(); // Trim to remove any extraneous whitespace
+                        input.addEventListener('input', (event) => {
+                            const rowIndex = Array.from(row.parentNode.children).indexOf(row);
+                            jsonData[rowIndex + 1][columnIndex] = event.target.value.trim(); // Trim input value
+                        });
+                        cell.textContent = '';
+                        cell.appendChild(input);
+                    } else {
+                        const input = cell.querySelector('input');
+                        if (input) {
+                            cell.textContent = input.value.trim(); // Trim to remove any extraneous whitespace
+                        }
+                    }
+                }
+            });
+        }
+
+        function addRow() {
+            const row = [];
+            const headerRow = jsonData[0];
+            headerRow.forEach(() => row.push(''));
+            jsonData.push(row);
+            renderTable(jsonData);
+            updateEditableColumns();
+        }
+
+        function updateEditableColumns() {
+            const checkboxes = dataTable.querySelectorAll('thead input[type="checkbox"]');
+            checkboxes.forEach(checkbox => {
+                if (checkbox.checked) {
+                    toggleColumnEditable({ target: checkbox });
+                }
+            });
+        }
+
+        function downloadCSV() {
+            const headers = Array.from(dataTable.querySelectorAll('thead th')).map(th => th.textContent);
+            const rows = Array.from(dataTable.querySelectorAll('tbody tr')).map(tr => {
+                return Array.from(tr.querySelectorAll('td')).map(td => {
+                    const input = td.querySelector('input');
+                    return input ? input.value.trim() : td.textContent.trim(); // Trim to remove any extraneous whitespace
+                });
+            });
+            rows.unshift(headers);
+
+            const worksheet = XLSX.utils.aoa_to_sheet(rows);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
+
+            const csv = XLSX.write(workbook, { bookType: 'csv', type: 'array' });
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            saveAs(blob, 'edited_data.csv');
+        }
+    </script>
+</body>
+</html>
